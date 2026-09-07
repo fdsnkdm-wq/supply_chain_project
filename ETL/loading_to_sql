@@ -1,0 +1,45 @@
+import os
+from dotenv import load_dotenv
+import pandas as pd
+from sqlalchemy import create_engine, text
+from extract_transform import dim_customer, dim_product, dim_geography, dim_shipping, dim_date, fact_order_items
+
+#change it later
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))       # .../supply_chain_project/ETL
+PROJECT_ROOT = os.path.dirname(BASE_DIR)                      # .../supply_chain_project
+
+load_dotenv(os.path.join(BASE_DIR, '.env.txt'))      # читает .env файл из корня проекта
+
+DB_USER = os.getenv('POSTGRES_USER')
+DB_PASSWORD = os.getenv('POSTGRES_PASSWORD')
+DB_NAME = os.getenv('POSTGRES_DB')
+DB_HOST = 'localhost'
+DB_PORT = '5432'
+
+engine = create_engine(f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
+
+with open('SQL/sql_code.sql', 'r') as f:
+    ddl_script = f.read()
+
+with engine.connect() as conn:
+    conn.execute(text(ddl_script))
+    conn.commit()
+
+# loading to database
+
+dim_customer.to_sql('dim_customer', engine, if_exists='append', index=False)
+dim_product.to_sql('dim_product', engine, if_exists='append', index=False)
+dim_geography.to_sql('dim_geography', engine, if_exists='append', index=False)
+dim_shipping.to_sql('dim_shipping', engine, if_exists='append', index=False)
+dim_date.to_sql('dim_date', engine, if_exists='append', index=False)
+
+# 3. fact — последней, только после того как все dimension уже в БД
+fact_order_items.to_sql('fact_order_items', engine, if_exists='append', index=False)
+
+with engine.connect() as conn:
+    for table in ['dim_customer', 'dim_product', 'dim_geography', 
+                  'dim_shipping', 'dim_date', 'fact_order_items']:
+        result = conn.execute(text(f'SELECT COUNT(*) FROM {table}'))
+        print(table, result.scalar())
+

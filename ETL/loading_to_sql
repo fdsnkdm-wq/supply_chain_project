@@ -2,14 +2,12 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.dialects.postgresql import insert
 from extract_transform import dim_customer, dim_product, dim_geography, dim_shipping, dim_date, fact_order_items
 
-#change it later
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))       # .../supply_chain_project/ETL
-PROJECT_ROOT = os.path.dirname(BASE_DIR)                      # .../supply_chain_project
-
-load_dotenv(os.path.join(BASE_DIR, '.env.txt'))      # читает .env файл из корня проекта
+#connecting to env file using load_dotenv / getenv methods to engine sql
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, '.env.txt'))
 
 DB_USER = os.getenv('POSTGRES_USER')
 DB_PASSWORD = os.getenv('POSTGRES_PASSWORD')
@@ -26,20 +24,28 @@ with engine.connect() as conn:
     conn.execute(text(ddl_script))
     conn.commit()
 
-# loading to database
 
-dim_customer.to_sql('dim_customer', engine, if_exists='append', index=False)
-dim_product.to_sql('dim_product', engine, if_exists='append', index=False)
-dim_geography.to_sql('dim_geography', engine, if_exists='append', index=False)
-dim_shipping.to_sql('dim_shipping', engine, if_exists='append', index=False)
-dim_date.to_sql('dim_date', engine, if_exists='append', index=False)
+# function for checking dublicates in database for next runs
+def on_conflict_do_nothing(table, conn, keys, data_iter):
+    data = [dict(zip(keys, row)) for row in data_iter]
+    if data:
+        stmt = insert(table.table).values(data).on_conflict_do_nothing()
+        conn.execute(stmt)
 
-# 3. fact — последней, только после того как все dimension уже в БД
-fact_order_items.to_sql('fact_order_items', engine, if_exists='append', index=False)
 
+# loading data from df to database
+dim_customer.to_sql('dim_customer', engine, if_exists='append', index=False, method=on_conflict_do_nothing, chunksize=10000)
+dim_product.to_sql('dim_product', engine, if_exists='append', index=False, method=on_conflict_do_nothing, chunksize=10000)
+dim_geography.to_sql('dim_geography', engine, if_exists='append', index=False, method=on_conflict_do_nothing, chunksize=10000)
+dim_shipping.to_sql('dim_shipping', engine, if_exists='append', index=False, method=on_conflict_do_nothing, chunksize=10000)
+dim_date.to_sql('dim_date', engine, if_exists='append', index=False, method=on_conflict_do_nothing, chunksize=10000)
+
+fact_order_items.to_sql('fact_order_items', engine, if_exists='append', index=False, method=on_conflict_do_nothing, chunksize=10000)
+
+
+# checking raws in tables after loading
 with engine.connect() as conn:
     for table in ['dim_customer', 'dim_product', 'dim_geography', 
                   'dim_shipping', 'dim_date', 'fact_order_items']:
         result = conn.execute(text(f'SELECT COUNT(*) FROM {table}'))
         print(table, result.scalar())
-

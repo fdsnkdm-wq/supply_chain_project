@@ -4,15 +4,18 @@ from pathlib import Path
 path_dir = Path('D:/supply_chain_project/Data')
 file_name = 'DataCoSupplyChainDataset.csv'
 
-df_supplychain = pd.read_csv(path_dir/file_name, encoding_errors='ignore')
+df_supplychain = pd.read_csv(path_dir/file_name, encoding_errors='ignore') 
+
+#creating dimentios using main dataset df_supplychain
 
 dim_customer = df_supplychain[['Customer Id', 'Customer Fname', 'Customer Lname', 
                     'Customer Segment', 'Customer City', 'Customer State',
                     'Customer Country', 'Customer Street', 'Customer Zipcode']].drop_duplicates(subset=['Customer Id']).reset_index(drop=True)
+#creating key in new dimention
 dim_customer['customer_key'] = dim_customer.index + 1 
-
+#merge with main dataframe
 df_supplychain = df_supplychain.merge(dim_customer[['Customer Id', 'customer_key']], on='Customer Id', how='left')
-
+#rename columns according to sql requirements
 dim_customer = dim_customer.rename(columns={
     'Customer Id': 'customer_id',
     'Customer Fname': 'customer_fname',
@@ -25,7 +28,8 @@ dim_customer = dim_customer.rename(columns={
     'Customer Zipcode': 'customer_zipcode'
 })
 
-dim_product = df_supplychain[['Product Card Id','Product Category Id','Product Name','Product Price','Product Status']].drop_duplicates(subset=['Product Card Id']).reset_index(drop=True)
+dim_product = df_supplychain[['Product Card Id','Product Category Id','Product Name',
+                              'Product Price','Product Status']].drop_duplicates(subset=['Product Card Id']).reset_index(drop=True)
 
 dim_product['product_key'] = dim_product.index + 1
 
@@ -47,6 +51,7 @@ dim_geography = df_supplychain[['Order City', 'Order State', 'Order Country',
                      'Longitude']].drop_duplicates().reset_index(drop=True)
 dim_geography['geography_key'] = dim_geography.index + 1
 
+#we dont have any id here, so we using uniq combination of columns
 df_supplychain = df_supplychain.merge(dim_geography, 
               on=['Order City', 'Order State', 'Order Country', 
                   'Order Region', 'Market', 'Latitude', 'Longitude'], 
@@ -79,24 +84,30 @@ dim_shipping = dim_shipping.rename(columns={
     'Order Status': 'order_status',
     'Type': 'type'
 })
-
+#creating date-time dimention, starting from object datetime
 df_supplychain['order date (DateOrders)'] = pd.to_datetime(df_supplychain['order date (DateOrders)'])
 df_supplychain['shipping date (DateOrders)'] = pd.to_datetime(df_supplychain['shipping date (DateOrders)'])
 
+#cutting timestamp
 df_supplychain['order date (DateOrders)'] = df_supplychain['order date (DateOrders)'].dt.floor('D')
 df_supplychain['shipping date (DateOrders)'] = df_supplychain['shipping date (DateOrders)'].dt.floor('D')
 
+#creating new column with both dt columns
 all_dates = pd.concat([df_supplychain['order date (DateOrders)'], 
                         df_supplychain['shipping date (DateOrders)']]).drop_duplicates().reset_index(drop=True)
 
+#creating dm for dt column
 dim_date = pd.DataFrame({'full_date': all_dates})
 
+#creating dt id and splitting the datetime object in datetime dim
 dim_date['date_key'] = dim_date['full_date'].dt.strftime('%Y%m%d').astype(int)
+
 dim_date['year'] = dim_date['full_date'].dt.year
 dim_date['month'] = dim_date['full_date'].dt.month
 dim_date['week'] = dim_date['full_date'].dt.isocalendar().week
 dim_date['day_of_week'] = dim_date['full_date'].dt.day_name()
 
+#delete later - dublicates
 df_supplychain['order_date_temp'] = df_supplychain['order date (DateOrders)'].dt.floor('D')
 df_supplychain['shipping_date_temp'] = df_supplychain['shipping date (DateOrders)'].dt.floor('D')
 
@@ -107,7 +118,6 @@ df_supplychain = df_supplychain.merge(
     how='left'
 ).rename(columns={'date_key': 'order_date_key'}).drop(columns=['full_date', 'order_date_temp'])
 
-# Мёрдж для shipping_date
 df_supplychain = df_supplychain.merge(
     dim_date[['full_date', 'date_key']], 
     left_on='shipping_date_temp', 
@@ -116,8 +126,8 @@ df_supplychain = df_supplychain.merge(
 ).rename(columns={'date_key': 'shipping_date_key'}).drop(columns=['full_date', 'shipping_date_temp'])
 
 fact_order_items = df_supplychain[[
-    'Order Item Id',        # PK
-    'Order Id',              # degenerate dimension
+    'Order Item Id',
+    'Order Id',
     'customer_key', 'product_key', 'geography_key', 'shipping_key',
     'order_date_key', 'shipping_date_key',
     'Benefit per order', 'Sales per customer',
